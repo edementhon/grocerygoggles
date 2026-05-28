@@ -74,6 +74,18 @@ python3 -m http.server 8000
 Service workers require `https://` **or** `localhost`, so to test from a phone on
 your LAN, deploy to a real HTTPS host (below) rather than hitting the dev box's IP.
 
+### Tests
+
+A headless-browser integration test drives the real UI with a stubbed Gemini
+API (setup, capture → render, XSS hardening, history, error paths):
+
+```bash
+cd tests && npm install && npx playwright install chromium && npm test
+```
+
+See [`tests/`](./tests/). The app itself stays dependency-free; tooling lives
+only under `tests/`.
+
 ## Deploy (andromeda)
 
 Static files behind nginx. One-time setup on the server:

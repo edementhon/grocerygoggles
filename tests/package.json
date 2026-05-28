@@ -1,0 +1,12 @@
+{
+  "name": "grocery-goggles-tests",
+  "private": true,
+  "type": "module",
+  "description": "Headless-browser integration test for Grocery Goggles. Isolated from the (build-free) app.",
+  "scripts": {
+    "test": "node integration.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}
