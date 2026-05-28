@@ -1,0 +1,16 @@
+# emacs autosave/lock files
+\#*\#
+.\#*
+*~
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# claude session artifacts
+.claude-sessions/
+
+# node / build (none currently, but reserved)
+node_modules/
+dist/

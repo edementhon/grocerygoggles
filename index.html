@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f2937">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Grocery Goggles">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="stylesheet" href="./style.css">
+<title>Grocery Goggles</title>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>Grocery Goggles</h1>
+  <button id="open-settings" class="icon-btn" aria-label="Settings">⚙︎</button>
+</header>
+
+<main>
+
+  <!-- Setup card: shown when no API key is configured -->
+  <section id="setup-card" class="card hidden">
+    <h2>One-time setup</h2>
+    <p>You need a free Google AI Studio key to use Grocery Goggles. It stays on your phone and is sent only to Google's API.</p>
+    <ol>
+      <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></li>
+      <li>Click "Create API key"</li>
+      <li>Paste it below.</li>
+    </ol>
+    <label for="setup-key">API key</label>
+    <input type="password" id="setup-key" autocomplete="off" placeholder="AIza...">
+    <button id="setup-save" class="primary">Save and start scanning</button>
+    <p id="setup-error" class="error hidden"></p>
+    <p class="disclaimer">Verdicts are an opinionated heuristic to help you read labels faster, not medical or nutritional advice. Tune them anytime in Settings.</p>
+  </section>
+
+  <!-- Scan view -->
+  <section id="scan-view" class="view">
+    <button id="scan-btn" class="big-primary">
+      <span class="big-primary-icon">📷</span>
+      Scan a label
+    </button>
+    <input type="file" id="file-input" accept="image/*" capture="environment" hidden>
+
+    <div id="scan-result" class="hidden">
+      <img id="scan-photo" alt="Scanned label">
+      <div id="scan-status"></div>
+      <div id="scan-meta" class="meta"></div>
+      <ul id="ingredient-list"></ul>
+    </div>
+  </section>
+
+  <!-- History view -->
+  <section id="history-view" class="view hidden">
+    <h2>History</h2>
+    <p id="history-empty" class="muted hidden">No scans yet. Tap "Scan" to start.</p>
+    <ul id="history-list"></ul>
+  </section>
+
+</main>
+
+<!-- Bottom nav -->
+<nav class="bottom-nav">
+  <button id="tab-scan" class="tab active" data-view="scan">📷 Scan</button>
+  <button id="tab-history" class="tab" data-view="history">🕘 History</button>
+</nav>
+
+<!-- Settings drawer -->
+<aside id="settings-drawer" class="drawer hidden">
+  <div class="drawer-header">
+    <h2>Settings</h2>
+    <button id="close-settings" class="icon-btn" aria-label="Close">✕</button>
+  </div>
+  <div class="drawer-body">
+    <label for="settings-key">Gemini API key</label>
+    <input type="password" id="settings-key" autocomplete="off" placeholder="AIza...">
+    <p class="hint">Stored only in this browser. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get one</a>.</p>
+
+    <label for="settings-prefs">Personal preferences</label>
+    <textarea id="settings-prefs" rows="6" placeholder="Optional. Examples: 'I'm vegan, flag dairy as red.' 'I'm fine with cane sugar.' 'I avoid seed oils.'"></textarea>
+    <p class="hint">Free-form. These nudge the verdict on every scan.</p>
+
+    <hr>
+
+    <button id="clear-history" class="danger">Clear history</button>
+
+    <p class="disclaimer">Grocery Goggles uses Gemini (<code>gemini-3.5-flash</code>) for OCR and classification. Your key and history stay on this device. Verdicts are an opinionated heuristic, not medical advice.</p>
+  </div>
+</aside>
+<div id="drawer-backdrop" class="backdrop hidden"></div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
