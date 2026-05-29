@@ -303,3 +303,85 @@ textarea { resize: vertical; }
   z-index: 20;
   background: rgba(15,23,42,0.4);
 }
+
+/* Secondary button */
+.secondary {
+  display: inline-block;
+  width: 100%;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.secondary:active { background: #f1f5f9; }
+.primary:disabled { opacity: 0.5; }
+
+/* Capture tray */
+.tray { margin-top: 8px; }
+.tray-thumbs { display: flex; flex-wrap: wrap; gap: 12px; }
+.tray-thumb { position: relative; width: 88px; height: 88px; }
+.tray-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; background: #000; }
+.tray-remove {
+  position: absolute;
+  top: -8px; right: -8px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  background: var(--ink);
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.tray-actions { display: flex; gap: 10px; margin-top: 6px; }
+.tray-actions .secondary, .tray-actions .primary { margin-top: 0; }
+
+/* Nutrition table */
+.nutrition {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  margin: 14px 0;
+}
+.nutri-head { font-weight: 700; font-size: 1.05rem; }
+.nutri-serving { font-size: 0.85rem; color: var(--muted); margin-top: 2px; }
+.nutri-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.nutri-table thead th { text-align: right; font-size: 0.8rem; color: var(--muted); font-weight: 600; padding: 0 0 6px; }
+.nutri-table thead th:first-child { text-align: left; }
+.nutri-table th[scope="row"] { text-align: left; font-weight: 600; padding: 6px 8px 6px 0; }
+.nutri-table td { text-align: right; padding: 6px 0 6px 12px; white-space: nowrap; }
+.nutri-table tbody tr { border-top: 1px solid var(--border); }
+.nutri-table tr.sub th[scope="row"] { padding-left: 14px; font-weight: 400; color: var(--muted); }
+.nutri-note { font-size: 0.82rem; color: var(--muted); margin-top: 10px; }
+.chip-stat { color: var(--accent); font-weight: 600; }
+.plain-list { list-style: none; padding: 0; margin: 8px 0 0; }
+
+/* Compare */
+.cmp-pick { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.cmp-pick input { width: 20px; height: 20px; flex: none; }
+.cmp-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; background: #000; flex: none; }
+.cmp-label { font-size: 0.95rem; }
+.cmp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.cmp-table thead th { vertical-align: bottom; padding: 0 6px 8px; font-size: 0.9rem; text-align: right; }
+.cmp-table thead th:first-child { text-align: left; }
+.cmp-basis { font-size: 0.72rem; color: var(--muted); font-weight: 400; }
+.cmp-table th[scope="row"] { text-align: left; font-weight: 600; padding: 8px 8px 8px 0; }
+.cmp-table td { text-align: right; padding: 8px 6px; white-space: nowrap; border-top: 1px solid var(--border); }
+.cmp-table tr.sub th[scope="row"] { padding-left: 14px; font-weight: 400; color: var(--muted); }
+.cmp-better { background: var(--green-bg); color: var(--green); font-weight: 700; border-radius: 6px; }
+.cmp-worse { background: var(--red-bg); color: var(--red); }

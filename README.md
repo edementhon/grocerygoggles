@@ -1,14 +1,16 @@
 # Grocery Goggles 🔎
 
-Point your phone's camera at a packaged-food ingredient label and get each
-ingredient color-coded: **🟢 green** (fine), **🟡 yellow** (in moderation),
-**🔴 red** (best avoided), with a one-line reason for the flags.
+Point your phone's camera at a packaged-food label and get each ingredient
+color-coded: **🟢 green** (fine), **🟡 yellow** (in moderation), **🔴 red**
+(best avoided), with a one-line reason for the flags. It also reads the
+**Nutrition Facts** and normalizes them to **per 100 g / 100 ml** so you can
+compare products with different serving sizes side by side (EU-label style).
 
 It's a **Progressive Web App**: one codebase that installs to the home screen on
 both iOS and Android, no app store, no servers. A single multimodal LLM call does
-both the OCR *and* the classification, so it's robust on glossy, curved, and
-small-print labels where traditional OCR struggles, and the heavy lifting happens
-in the cloud (your phone stays cool).
+the OCR *and* the classification *and* the nutrition transcription, so it's robust
+on glossy, curved, and small-print labels where traditional OCR struggles, and the
+heavy lifting happens in the cloud (your phone stays cool).
 
 > ⚠️ Verdicts are an **opinionated heuristic** to help you read labels faster, not
 > medical or nutritional advice. The default rubric reflects one point of view; you
@@ -17,13 +19,19 @@ in the cloud (your phone stays cool).
 ## How it works
 
 ```
-camera photo → downscale on-device → Gemini (OCR + verdicts, JSON) → color-coded list
+camera photo(s) → downscale on-device → Gemini (verdicts + nutrition, JSON)
+                → normalize to per-100g in JS → color-coded list + nutrition table
 ```
 
 - **Capture** uses the native camera via `<input type="file" capture>`, which avoids
   a long-standing iOS bug where installed PWAs lose camera permission between sessions.
-- **Classification** uses Google's Gemini API. The model returns structured JSON
-  (ingredient, verdict, reason) that the app renders directly.
+  You can add **multiple photos** to one scan (e.g. ingredients on one panel, Nutrition
+  Facts on another); they're sent together and merged into one product.
+- **Classification + nutrition** use Google's Gemini API, which returns structured JSON.
+  The model only *transcribes* the nutrition label; the per-100g/ml **math is done in
+  JavaScript** (see `nutrition.js`) so it's deterministic, auditable, and unit-tested.
+- **Compare** puts two or more saved products side by side per 100 g / 100 ml, with the
+  better value per row highlighted (lower sugar/sodium, higher protein/fiber).
 - **History** (last 50 scans) and your settings live in the browser
   (IndexedDB + localStorage). Nothing is sent anywhere except directly from your
   phone to Google's API.
@@ -76,15 +84,17 @@ your LAN, deploy to a real HTTPS host (below) rather than hitting the dev box's 
 
 ### Tests
 
-A headless-browser integration test drives the real UI with a stubbed Gemini
-API (setup, capture → render, XSS hardening, history, error paths):
-
 ```bash
-cd tests && npm install && npx playwright install chromium && npm test
+cd tests
+npm install && npx playwright install chromium
+node nutrition.test.mjs   # unit: per-100g/ml normalization math
+npm test                  # integration: real UI, stubbed Gemini
 ```
 
-See [`tests/`](./tests/). The app itself stays dependency-free; tooling lives
-only under `tests/`.
+The integration test (headless Chromium, stubbed API) covers setup, the
+multi-photo capture tray, ingredient + nutrition rendering, per-100g
+normalization, XSS hardening, history, the compare view, and both error paths.
+The app itself stays dependency-free; tooling lives only under `tests/`.
 
 ## Deploy (andromeda)
 

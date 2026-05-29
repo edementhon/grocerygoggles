@@ -150,6 +150,16 @@ Domain TBD, pending user decision.
 - Cross-device history sync (would require a backend).
 - Export / share a scan result.
 
+## Nutrition normalization & comparison (v1.1)
+
+Added so two products with different serving sizes can be compared fairly (EU-label style, per 100 g / 100 ml).
+
+- **Multi-photo capture.** A scan can include more than one photo (ingredients on one panel, Nutrition Facts on another). "Scan" now collects photos into a tray, then "Analyze" sends them all in one Gemini call; the model merges them into one product. If it finds ingredients but no nutrition (or vice-versa), the UI nudges the user to add the missing photo and Analyze again (which updates the same history record via `updateScan`, no duplicate).
+- **Model transcribes, code computes.** The model only reads the label (serving size in g/ml + per-serving values, and any printed per-100 column). All normalization arithmetic lives in `nutrition.js` (pure, no DOM), so it's deterministic, auditable, and unit-tested (`tests/nutrition.test.mjs`). If the label already prints a per-100 column, that is trusted over recomputation.
+- **Basis.** Per 100 g for solids, per 100 ml for liquids, auto-detected from the serving unit. If the serving has no weight/volume (e.g. only "1 cup"), per-100 is impossible, so we show per-serving only with a note rather than guessing density.
+- **Compare view.** A third bottom-nav tab. Pick 2+ saved products (only those with a per-100 basis), see a side-by-side per-100 table with the better value per row highlighted (lower calories/sugar/sat-fat/sodium greener; higher protein/fiber greener; carbs uncolored). Warns when mixing g and ml products.
+- **Storage.** Records gain `nutrition` (normalized) and `thumbnails[]`; no IndexedDB version bump needed (schemaless records; old scans render as "no nutrition captured").
+
 ## Decision log
 
 These are decisions made during planning, with the reasoning, so we don't re-debate them later.
@@ -157,7 +167,7 @@ These are decisions made during planning, with the reasoning, so we don't re-deb
 - **PWA, not native.** Two users on different OSes (iOS + Android). PWA covers both with one codebase, no app stores, no developer accounts.
 - **BYOK, not centrally-funded.** Owner doesn't want to fund or rate-limit a public API. Friction (~3 min Google AI Studio signup) is acceptable for personal use.
 - **LLM-only OCR, not Tesseract/PaddleOCR.** Classical OCR is genuinely bad on real-world ingredient photos (curved, glossy, small text). Multimodal LLMs are a step-change. Bundling classification into the same call is essentially free.
-- **Gemini 2.5 Flash-Lite, not GPT-4o-mini or Claude Haiku.** Cheapest at $0.10/$0.40 per 1M tokens. Beats GPT-4o-mini on multimodal benchmarks in 2026. Has a generous free tier (~1,500 req/day). User can also point at OpenRouter if they prefer; the API surface is the same shape.
+- **Gemini, not GPT-4o-mini or Claude Haiku.** Generous free tier and strong multimodal/OCR. Default is `gemini-3.5-flash` (best vision; chosen because robust OCR is the stated priority and cost is ~nil under BYOK free tier), a one-line switchable constant in `app.js`; `gemini-2.5-flash` is the cheaper higher-rate-limit fallback. The API surface matches OpenRouter if the user ever wants to switch.
 - **`<input type="file" capture>`, not `getUserMedia`.** [iOS PWA standalone-mode bug](https://bugs.webkit.org/show_bug.cgi?id=185448) means camera permission isn't persisted across sessions for installed PWAs. `<input type="file">` invokes the native camera app and avoids that path entirely. Loses live preview, but for snap-and-classify that's fine.
 - **LLM judgment, not curated rule list.** Faster to ship, captures context (e.g. "organic cane sugar" vs. "high-fructose corn syrup"). Custom rubric textarea lets the user nudge it without maintaining a giant lookup table.
 - **Vanilla HTML/JS, not React/Svelte.** Single page, no build step, deploys instantly. Tiny bundle. No framework to maintain.

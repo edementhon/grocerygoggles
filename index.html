@@ -47,11 +47,23 @@
     </button>
     <input type="file" id="file-input" accept="image/*" capture="environment" hidden>
 
+    <!-- Capture tray: collect one or more photos (e.g. ingredients + nutrition), then Analyze -->
+    <div id="tray" class="tray hidden">
+      <div id="tray-thumbs" class="tray-thumbs"></div>
+      <p class="hint">Add the ingredients and the Nutrition Facts panel. One photo if they fit together, or several.</p>
+      <div class="tray-actions">
+        <button id="add-photo" class="secondary">+ Add photo</button>
+        <button id="analyze-btn" class="primary">Analyze</button>
+      </div>
+    </div>
+
     <div id="scan-result" class="hidden">
-      <img id="scan-photo" alt="Scanned label">
       <div id="scan-status"></div>
       <div id="scan-meta" class="meta"></div>
+      <div id="nutrition-block"></div>
+      <p id="scan-note" class="nutri-note hidden"></p>
       <ul id="ingredient-list"></ul>
+      <button id="new-scan" class="secondary">Scan another</button>
     </div>
   </section>
 
@@ -62,12 +74,23 @@
     <ul id="history-list"></ul>
   </section>
 
+  <!-- Compare view -->
+  <section id="compare-view" class="view hidden">
+    <h2>Compare</h2>
+    <p id="compare-empty" class="muted hidden">Scan at least two products that have Nutrition Facts to compare them here.</p>
+    <p id="compare-hint" class="hint hidden">Select two or more products to compare them per 100 g / 100 ml.</p>
+    <div id="compare-picker"></div>
+    <div id="compare-warning" class="nutri-note hidden"></div>
+    <div id="compare-table-wrap"></div>
+  </section>
+
 </main>
 
 <!-- Bottom nav -->
 <nav class="bottom-nav">
   <button id="tab-scan" class="tab active" data-view="scan">📷 Scan</button>
   <button id="tab-history" class="tab" data-view="history">🕘 History</button>
+  <button id="tab-compare" class="tab" data-view="compare">⚖️ Compare</button>
 </nav>
 
 <!-- Settings drawer -->

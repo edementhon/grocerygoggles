@@ -1,7 +1,7 @@
 // Service worker: cache the app shell so the PWA opens offline.
 // Scans still need network (the Gemini call is never cached).
 // CACHE_VERSION is bumped automatically by deploy.sh on every deploy.
-const CACHE_VERSION = "gg-v1";
+const CACHE_VERSION = "gg-2026-05-29-nutrition";
 
 const SHELL = [
   "./",
@@ -9,6 +9,7 @@ const SHELL = [
   "./style.css",
   "./app.js",
   "./db.js",
+  "./nutrition.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

@@ -36,12 +36,20 @@ function done(request) {
   });
 }
 
-// record: { timestamp, productGuess, thumbnail (Blob), ingredients (array) }
+// record: { timestamp, productGuess, thumbnails ([Blob]), ingredients ([]), nutrition }
 export async function addScan(record) {
   const db = await openDB();
   const store = tx(db, "readwrite");
   const id = await done(store.add(record));
   await trim(store);
+  return id;
+}
+
+// Re-save an existing scan in place (e.g. after adding a nutrition photo and
+// re-analyzing), so we update the record instead of creating a duplicate.
+export async function updateScan(id, record) {
+  const db = await openDB();
+  await done(tx(db, "readwrite").put({ ...record, id }));
   return id;
 }
 
