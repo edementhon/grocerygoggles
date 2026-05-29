@@ -1,73 +1,90 @@
-// Grocery Goggles - capture label photos, classify ingredients + nutrition,
-// normalize to per-100g/ml, render, remember, and compare.
-import { addScan, updateScan, getAllScans, clearScans } from "./db.js";
+// Grocery Goggles - snap a burst of label photos, classify ingredients +
+// nutrition for one or more products in ONE call, normalize to per-100g/ml,
+// and show a single verdict or a side-by-side comparison.
+import { addScan, updateScan, deleteScan, getAllScans, clearScans } from "./db.js";
 import { NUTRIENTS, NUTRIENT_KEYS, normalizeNutrition, fmt, basisLabel } from "./nutrition.js";
 
 // --- Config -----------------------------------------------------------------
 
-// Model is a single switchable constant. Cheaper/faster: "gemini-2.5-flash" or
-// "gemini-2.5-flash-lite". Newest/best vision (default): "gemini-3.5-flash".
-const MODEL = "gemini-3.5-flash";
+// Two tiers behind the Settings "Speed vs quality" toggle. Both are switchable
+// here; "fast" also disables model "thinking" to cut latency.
+const MODELS = { fast: "gemini-2.5-flash", quality: "gemini-3.5-flash" };
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-const MAX_DIM = 1280;   // longest edge sent to the model; bigger == better OCR, larger payload
-const THUMB_DIM = 256;  // history thumbnail longest edge
+const MAX_DIM = 1280;
+const THUMB_DIM = 256;
 const JPEG_QUALITY = 0.85;
 
 const LS_KEY = "gg_api_key";
 const LS_PREFS = "gg_prefs";
+const LS_MODEL = "gg_model"; // "fast" | "quality"
 
-// The default rubric is an opinionated heuristic, not settled nutrition science.
-// Users override it via the "Personal preferences" box in Settings.
-const BASE_PROMPT = `You are analyzing photos of a SINGLE packaged-food product. You may receive more than one photo (for example, one of the ingredients list and one of the Nutrition Facts panel). Treat all photos as the same product and merge what you find.
+const BASE_PROMPT = `You are analyzing photos of packaged food. The photos may show ONE product or SEVERAL different products (e.g. two cereals the shopper is comparing). Group the photos by product and return one entry in "products" per distinct product. For each product, set "photoIndexes" to the 0-based indexes (in the order the photos were given) of the photos that show it.
 
-INGREDIENTS: Extract every ingredient in the order listed. For each, assign a verdict:
+For each product:
+INGREDIENTS: Extract every ingredient in order. Assign a verdict:
 - "red": best avoided (artificial colors, high-fructose corn syrup, BHA/BHT, partially hydrogenated oils, artificial sweeteners, nitrites, etc.)
 - "yellow": fine in moderation (refined sugars, seed/vegetable oils, common preservatives, "natural flavors", maltodextrin, etc.)
-- "green": whole foods, recognized nutrients, and generally-safe additives.
-Give a reason of 12 words or fewer for every red and yellow verdict; leave reason empty ("") for green.
+- "green": whole foods, recognized nutrients, generally-safe additives.
+Reason of 12 words or fewer for every red/yellow; empty ("") for green.
+NUTRITION: If a Nutrition Facts panel is visible, fill "nutrition". Transcribe EXACTLY as printed; never compute. null for any nutrient not listed. servingAmount + servingUnit = serving size by weight ("g") or volume ("ml"); if only a household measure, leave servingAmount null. Household measure (e.g. "1/2 cup") in servingHousehold. basisHint "solid" or "liquid". If the label prints its own per-100 column, copy it into per100Label. If no panel is visible, nutrition = null.
+"productGuess": 2-4 word description.
 
-NUTRITION: If a Nutrition Facts panel is visible, fill "nutrition". Transcribe values EXACTLY as printed; never compute or convert. Use null for any nutrient not listed. Set servingAmount + servingUnit to the serving size by weight ("g") or volume ("ml"); if the serving is only a household measure with no g/ml, leave servingAmount null. Put the household measure (e.g. "1/2 cup") in servingHousehold. Set basisHint to "solid" or "liquid". If the label prints its own per-100g or per-100ml column, copy those numbers into per100Label. If no nutrition panel is visible, set nutrition to null.
+If there are 2+ products, fill "comparison": a one-sentence "summary" naming the better overall pick and why (weigh ingredient quality first, then nutrition), and 2-4 short "highlights" of the key differences (especially flagged additives one product has that another lacks). If only one product, comparison = null.
+If you cannot read anything useful, return empty "products" and a short "error".`;
 
-Also return "productGuess": a 2-4 word description of the product.
-If you cannot read anything useful, return empty "ingredients", null "nutrition", and a short "error".`;
-
-const nutrientProps = () =>
-  Object.fromEntries(NUTRIENT_KEYS.map((k) => [k, { type: "number", nullable: true }]));
-
+const nutrientProps = () => Object.fromEntries(NUTRIENT_KEYS.map((k) => [k, { type: "number", nullable: true }]));
+const nutritionSchema = {
+  type: "object",
+  nullable: true,
+  properties: {
+    servingAmount: { type: "number", nullable: true },
+    servingUnit: { type: "string", nullable: true },
+    servingHousehold: { type: "string" },
+    basisHint: { type: "string", nullable: true },
+    perServing: { type: "object", properties: nutrientProps(), propertyOrdering: NUTRIENT_KEYS },
+    per100Label: { type: "object", nullable: true, properties: nutrientProps(), propertyOrdering: NUTRIENT_KEYS },
+  },
+  propertyOrdering: ["servingAmount", "servingUnit", "servingHousehold", "basisHint", "perServing", "per100Label"],
+};
 const RESPONSE_SCHEMA = {
   type: "object",
   properties: {
-    productGuess: { type: "string" },
-    ingredients: {
+    products: {
       type: "array",
       items: {
         type: "object",
         properties: {
-          name: { type: "string" },
-          verdict: { type: "string", enum: ["red", "yellow", "green"] },
-          reason: { type: "string" },
+          productGuess: { type: "string" },
+          photoIndexes: { type: "array", items: { type: "number" } },
+          ingredients: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                verdict: { type: "string", enum: ["red", "yellow", "green"] },
+                reason: { type: "string" },
+              },
+              required: ["name", "verdict", "reason"],
+              propertyOrdering: ["name", "verdict", "reason"],
+            },
+          },
+          nutrition: nutritionSchema,
         },
-        required: ["name", "verdict", "reason"],
-        propertyOrdering: ["name", "verdict", "reason"],
+        required: ["productGuess", "ingredients"],
+        propertyOrdering: ["productGuess", "photoIndexes", "ingredients", "nutrition"],
       },
     },
-    nutrition: {
+    comparison: {
       type: "object",
       nullable: true,
-      properties: {
-        servingAmount: { type: "number", nullable: true },
-        servingUnit: { type: "string", nullable: true },
-        servingHousehold: { type: "string" },
-        basisHint: { type: "string", nullable: true },
-        perServing: { type: "object", properties: nutrientProps(), propertyOrdering: NUTRIENT_KEYS },
-        per100Label: { type: "object", nullable: true, properties: nutrientProps(), propertyOrdering: NUTRIENT_KEYS },
-      },
-      propertyOrdering: ["servingAmount", "servingUnit", "servingHousehold", "basisHint", "perServing", "per100Label"],
+      properties: { summary: { type: "string" }, highlights: { type: "array", items: { type: "string" } } },
+      propertyOrdering: ["summary", "highlights"],
     },
     error: { type: "string" },
   },
-  propertyOrdering: ["productGuess", "ingredients", "nutrition", "error"],
+  propertyOrdering: ["products", "comparison", "error"],
 };
 
 // --- DOM ---------------------------------------------------------------------
@@ -78,13 +95,13 @@ const els = {
 
   scanView: $("scan-view"), scanBtn: $("scan-btn"), fileInput: $("file-input"),
   tray: $("tray"), trayThumbs: $("tray-thumbs"), addPhoto: $("add-photo"), analyzeBtn: $("analyze-btn"),
-  scanResult: $("scan-result"), scanStatus: $("scan-status"), scanMeta: $("scan-meta"),
-  nutritionBlock: $("nutrition-block"), scanNote: $("scan-note"), ingredientList: $("ingredient-list"), newScan: $("new-scan"),
+  scanResult: $("scan-result"), scanStatus: $("scan-status"), resultBody: $("result-body"),
+  scanNote: $("scan-note"), newScan: $("new-scan"),
 
   historyView: $("history-view"), historyList: $("history-list"), historyEmpty: $("history-empty"),
 
   compareView: $("compare-view"), compareEmpty: $("compare-empty"), compareHint: $("compare-hint"),
-  comparePicker: $("compare-picker"), compareWarning: $("compare-warning"), compareTableWrap: $("compare-table-wrap"),
+  comparePicker: $("compare-picker"), compareTableWrap: $("compare-table-wrap"),
 
   tabScan: $("tab-scan"), tabHistory: $("tab-history"), tabCompare: $("tab-compare"),
 
@@ -94,16 +111,18 @@ const els = {
 
 // --- State -------------------------------------------------------------------
 
-let photos = [];          // { base64, thumbBlob } captured for the current scan
-let currentScanId = null; // db id of the scan being built (so re-analyze updates, not duplicates)
-const compareSelected = new Set(); // scan ids chosen for comparison
+let photos = [];        // { base64, thumbBlob }
+let currentScanIds = []; // db ids written by the last Analyze (replaced on re-analyze)
+const compareSelected = new Set();
 
-// --- Key + prefs -------------------------------------------------------------
+// --- Key / prefs / model -----------------------------------------------------
 
 const getKey = () => localStorage.getItem(LS_KEY) || "";
 const setKey = (k) => localStorage.setItem(LS_KEY, k.trim());
 const getPrefs = () => localStorage.getItem(LS_PREFS) || "";
 const setPrefs = (p) => localStorage.setItem(LS_PREFS, p);
+const getModelMode = () => (localStorage.getItem(LS_MODEL) === "quality" ? "quality" : "fast");
+const setModelMode = (m) => localStorage.setItem(LS_MODEL, m);
 
 // --- Init --------------------------------------------------------------------
 
@@ -128,6 +147,9 @@ function init() {
   els.settingsKey.addEventListener("change", () => { if (els.settingsKey.value.trim()) setKey(els.settingsKey.value); });
   els.settingsPrefs.addEventListener("blur", () => setPrefs(els.settingsPrefs.value));
   els.clearHistory.addEventListener("click", onClearHistory);
+  for (const r of document.querySelectorAll('input[name="model"]')) {
+    r.addEventListener("change", () => { if (r.checked) setModelMode(r.value); });
+  }
 }
 
 function showSetup() {
@@ -138,7 +160,6 @@ function hideSetup() {
   els.setupCard.classList.add("hidden");
   if (!photos.length) els.scanBtn.classList.remove("hidden");
 }
-
 function onSetupSave() {
   const k = els.setupKey.value.trim();
   if (!k) { els.setupError.textContent = "Paste a key first."; els.setupError.classList.remove("hidden"); return; }
@@ -161,6 +182,8 @@ function switchView(name) {
 function openDrawer() {
   els.settingsKey.value = getKey();
   els.settingsPrefs.value = getPrefs();
+  const mode = getModelMode();
+  for (const r of document.querySelectorAll('input[name="model"]')) r.checked = r.value === mode;
   els.drawer.classList.remove("hidden");
   els.backdrop.classList.remove("hidden");
 }
@@ -175,6 +198,7 @@ function closeDrawer() {
 async function onClearHistory() {
   await clearScans();
   compareSelected.clear();
+  currentScanIds = [];
   renderHistory();
 }
 
@@ -182,14 +206,12 @@ async function onClearHistory() {
 
 async function onFilePicked(e) {
   const file = e.target.files && e.target.files[0];
-  els.fileInput.value = ""; // allow re-picking the same file
+  els.fileInput.value = "";
   if (!file) return;
   if (!getKey()) { showSetup(); return; }
-
   let img;
   try { img = await loadOriented(file); }
   catch { setStatus("Couldn't open that image. Try again.", true); return; }
-
   const base64 = drawScaled(img, MAX_DIM).toDataURL("image/jpeg", JPEG_QUALITY).split(",")[1];
   const thumbBlob = await canvasToBlob(drawScaled(img, THUMB_DIM));
   photos.push({ base64, thumbBlob });
@@ -201,7 +223,6 @@ function renderTray() {
   els.tray.classList.toggle("hidden", photos.length === 0);
   els.analyzeBtn.disabled = photos.length === 0;
   els.analyzeBtn.textContent = photos.length > 1 ? `Analyze ${photos.length} photos` : "Analyze";
-
   els.trayThumbs.replaceChildren();
   photos.forEach((p, i) => {
     const cell = document.createElement("div");
@@ -221,15 +242,12 @@ function renderTray() {
 
 function resetScan() {
   photos = [];
-  currentScanId = null;
+  currentScanIds = [];
   els.scanResult.classList.add("hidden");
-  els.tray.classList.add("hidden");
   els.scanNote.classList.add("hidden");
-  els.nutritionBlock.replaceChildren();
-  els.ingredientList.replaceChildren();
-  els.scanMeta.textContent = "";
+  els.resultBody.replaceChildren();
   clearStatus();
-  els.scanBtn.classList.toggle("hidden", !getKey());
+  renderTray(); // clears tray thumbs, hides tray, restores the scan button
 }
 
 async function onAnalyze() {
@@ -237,33 +255,52 @@ async function onAnalyze() {
   if (!getKey()) { showSetup(); return; }
 
   els.scanResult.classList.remove("hidden");
-  els.scanMeta.textContent = "";
-  els.nutritionBlock.replaceChildren();
-  els.ingredientList.replaceChildren();
+  els.resultBody.replaceChildren();
   els.scanNote.classList.add("hidden");
   setStatus("Reading label...", false, true);
 
   try {
     const result = await classify(photos.map((p) => p.base64));
-    const nothing = !result.ingredients.length && !result.nutrition;
-    if (nothing) {
+    const products = (result.products || []).filter((p) => (p.ingredients && p.ingredients.length) || p.nutrition);
+    if (!products.length) {
       setStatus(result.error || "Couldn't read the label. Try better lighting or get closer.", true);
       return;
     }
     clearStatus();
-    renderResult(result);
-    const record = {
-      timestamp: Date.now(),
-      productGuess: result.productGuess || "Scan",
-      thumbnails: photos.map((p) => p.thumbBlob),
-      ingredients: result.ingredients,
-      nutrition: result.nutrition,
-    };
-    currentScanId = currentScanId == null
-      ? await addScan(record)
-      : await updateScan(currentScanId, record);
+    if (products.length === 1) renderSingle(els.resultBody, products[0]);
+    else renderComparison(els.resultBody, products, result.comparison);
+    showNudge(products);
+    await saveBatch(products);
   } catch (err) {
     handleApiError(err);
+  }
+}
+
+function showNudge(products) {
+  let note = "";
+  if (products.length === 1) {
+    const p = products[0];
+    if (p.ingredients.length && !p.nutrition) note = "No Nutrition Facts found. Add a photo of the nutrition panel, then Analyze again.";
+    else if (!p.ingredients.length && p.nutrition) note = "No ingredients list found. Add a photo of the ingredients, then Analyze again.";
+  }
+  els.scanNote.textContent = note;
+  els.scanNote.classList.toggle("hidden", !note);
+}
+
+async function saveBatch(products) {
+  for (const id of currentScanIds) await deleteScan(id);
+  currentScanIds = [];
+  for (const p of products) {
+    const idxs = Array.isArray(p.photoIndexes) ? p.photoIndexes : [];
+    let thumbs = idxs.map((i) => photos[i]?.thumbBlob).filter(Boolean);
+    if (!thumbs.length) thumbs = photos.map((ph) => ph.thumbBlob);
+    currentScanIds.push(await addScan({
+      timestamp: Date.now(),
+      productGuess: p.productGuess || "Scan",
+      thumbnails: thumbs,
+      ingredients: p.ingredients,
+      nutrition: p.nutrition,
+    }));
   }
 }
 
@@ -279,7 +316,6 @@ function clearStatus() { els.scanStatus.replaceChildren(); els.scanStatus.classN
 
 // --- Image helpers -----------------------------------------------------------
 
-// Decode honoring EXIF orientation so we never send a sideways photo.
 async function loadOriented(file) {
   if ("createImageBitmap" in window) {
     try { return await createImageBitmap(file, { imageOrientation: "from-image" }); }
@@ -293,7 +329,6 @@ async function loadOriented(file) {
     im.src = url;
   });
 }
-
 function drawScaled(img, maxDim) {
   const w = img.width, h = img.height;
   const scale = Math.min(1, maxDim / Math.max(w, h));
@@ -303,7 +338,6 @@ function drawScaled(img, maxDim) {
   canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
   return canvas;
 }
-
 function canvasToBlob(canvas) {
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", 0.7));
 }
@@ -315,26 +349,26 @@ async function classify(base64Images) {
   const prompt = prefs
     ? `${BASE_PROMPT}\n\nAdditional user preferences (these override the defaults above):\n${prefs}`
     : BASE_PROMPT;
+  const mode = getModelMode();
+  const model = MODELS[mode];
 
   const parts = [{ text: prompt }];
   for (const b64 of base64Images) parts.push({ inlineData: { mimeType: "image/jpeg", data: b64 } });
 
-  const body = {
-    contents: [{ role: "user", parts }],
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: RESPONSE_SCHEMA,
-      temperature: 0.2,
-      maxOutputTokens: 8192,
-    },
+  const generationConfig = {
+    responseMimeType: "application/json",
+    responseSchema: RESPONSE_SCHEMA,
+    temperature: 0.2,
+    maxOutputTokens: 8192,
   };
+  if (mode === "fast") generationConfig.thinkingConfig = { thinkingBudget: 0 }; // 2.5-flash: skip thinking for speed
 
   let res;
   try {
-    res = await fetch(`${API_BASE}/${MODEL}:generateContent`, {
+    res = await fetch(`${API_BASE}/${model}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": getKey() },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }),
     });
   } catch { throw { kind: "network" }; }
 
@@ -342,60 +376,108 @@ async function classify(base64Images) {
     if (res.status === 429) throw { kind: "rate" };
     const errBody = await res.json().catch(() => null);
     const detail = (errBody?.error?.status || "") + " " + (errBody?.error?.message || "");
-    if (res.status === 401 || res.status === 403 || /API.?key|API_KEY_INVALID|PERMISSION_DENIED|UNAUTHENTICATED/i.test(detail)) {
-      throw { kind: "key" };
-    }
+    if (res.status === 401 || res.status === 403 || /API.?key|API_KEY_INVALID|PERMISSION_DENIED|UNAUTHENTICATED/i.test(detail)) throw { kind: "key" };
     throw { kind: "http", status: res.status, detail: detail.trim() };
   }
 
   const data = await res.json();
-  const cand = data.candidates && data.candidates[0];
-  const text = cand?.content?.parts?.map((p) => p.text || "").join("") || "";
-  if (!text) return { ingredients: [], nutrition: null, error: "The model returned nothing. Try again." };
+  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+  if (!text) return { products: [], comparison: null, error: "The model returned nothing. Try again." };
 
   let parsed;
   try { parsed = JSON.parse(text); }
-  catch { return { ingredients: [], nutrition: null, error: "Couldn't read the label. Try better lighting or get closer." }; }
+  catch { return { products: [], comparison: null, error: "Couldn't read the label. Try better lighting or get closer." }; }
 
-  const ingredients = Array.isArray(parsed.ingredients) ? parsed.ingredients.filter((i) => i && i.name) : [];
-  return {
-    ingredients,
-    productGuess: parsed.productGuess || "",
-    nutrition: normalizeNutrition(parsed.nutrition),
-    error: parsed.error || "",
-  };
+  const products = (Array.isArray(parsed.products) ? parsed.products : []).map((p) => ({
+    productGuess: p.productGuess || "",
+    photoIndexes: Array.isArray(p.photoIndexes) ? p.photoIndexes : [],
+    ingredients: Array.isArray(p.ingredients) ? p.ingredients.filter((i) => i && i.name) : [],
+    nutrition: normalizeNutrition(p.nutrition),
+  }));
+  return { products, comparison: parsed.comparison || null, error: parsed.error || "" };
 }
 
 function handleApiError(err) {
   const kind = err && err.kind;
-  if (kind === "key") {
-    setStatus("That API key was rejected. Re-enter it below.", true);
-    showSetup();
-    switchView("scan");
-  } else if (kind === "rate") {
-    setStatus("Slow down. The Gemini free tier is rate-limited; wait a minute and retry.", true);
-  } else if (kind === "network") {
-    setStatus("No connection. Check your network and try again.", true);
-  } else {
-    if (err && err.detail) console.error("Gemini API error:", err.status, err.detail);
-    setStatus("Something went wrong reading the label. Try again.", true);
-  }
+  if (kind === "key") { setStatus("That API key was rejected. Re-enter it below.", true); showSetup(); switchView("scan"); }
+  else if (kind === "rate") setStatus("Slow down. The Gemini free tier is rate-limited; wait a minute and retry.", true);
+  else if (kind === "network") setStatus("No connection. Check your network and try again.", true);
+  else { if (err && err.detail) console.error("Gemini API error:", err.status, err.detail); setStatus("Something went wrong reading the label. Try again.", true); }
 }
 
 // --- Rendering (all model output via textContent; never innerHTML) ----------
 
-function renderResult(result) {
-  els.scanMeta.textContent = result.productGuess || "";
-  renderIngredientList(els.ingredientList, result.ingredients);
-  renderNutrition(els.nutritionBlock, result.nutrition);
+function counts(ingredients) {
+  const c = { red: 0, yellow: 0, green: 0 };
+  for (const i of ingredients || []) if (c[i.verdict] != null) c[i.verdict]++;
+  return c;
+}
 
-  let note = "";
-  if (result.ingredients.length && !result.nutrition)
-    note = "No Nutrition Facts found. Add a photo of the nutrition panel, then Analyze again.";
-  else if (!result.ingredients.length && result.nutrition)
-    note = "No ingredients list found. Add a photo of the ingredients, then Analyze again.";
-  els.scanNote.textContent = note;
-  els.scanNote.classList.toggle("hidden", !note);
+function renderSingle(container, p) {
+  container.replaceChildren();
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = p.productGuess || "Scan";
+  container.appendChild(meta);
+
+  const c = counts(p.ingredients);
+  const head = document.createElement("div");
+  const tone = c.red ? "bad" : c.yellow ? "warn" : "clean";
+  head.className = `verdict-headline vh-${tone}`;
+  head.textContent = c.red || c.yellow
+    ? [c.red && `${c.red} to avoid`, c.yellow && `${c.yellow} in moderation`].filter(Boolean).join(" · ")
+    : "Looks clean ✓";
+  container.appendChild(head);
+
+  const nb = document.createElement("div");
+  renderNutrition(nb, p.nutrition);
+  container.appendChild(nb);
+
+  const list = document.createElement("ul");
+  list.className = "plain-list";
+  renderIngredientList(list, p.ingredients);
+  container.appendChild(list);
+}
+
+function renderComparison(container, products, comparison) {
+  container.replaceChildren();
+
+  if (comparison?.summary) {
+    const v = document.createElement("div");
+    v.className = "cmp-verdict";
+    v.textContent = comparison.summary;
+    container.appendChild(v);
+  }
+  if (Array.isArray(comparison?.highlights) && comparison.highlights.length) {
+    const ul = document.createElement("ul");
+    ul.className = "cmp-highlights";
+    for (const h of comparison.highlights) {
+      const li = document.createElement("li");
+      li.textContent = h;
+      ul.appendChild(li);
+    }
+    container.appendChild(ul);
+  }
+
+  renderComparisonTable(container, products.map((p) => ({
+    label: p.productGuess || "Scan", basis: p.nutrition?.basis, per100: p.nutrition?.per100 || null, ingredients: p.ingredients,
+  })));
+
+  // Per-product detail (collapsed) so the comparison stays scannable.
+  for (const p of products) {
+    const d = document.createElement("details");
+    d.className = "cmp-detail";
+    const s = document.createElement("summary");
+    s.textContent = p.productGuess || "Scan";
+    d.appendChild(s);
+    const nb = document.createElement("div");
+    renderNutrition(nb, p.nutrition);
+    const list = document.createElement("ul");
+    list.className = "plain-list";
+    renderIngredientList(list, p.ingredients);
+    d.append(nb, list);
+    container.appendChild(d);
+  }
 }
 
 function renderIngredientList(listEl, ingredients) {
@@ -426,15 +508,12 @@ function renderIngredientList(listEl, ingredients) {
 function renderNutrition(container, n) {
   container.replaceChildren();
   if (!n) return;
-
   const wrap = document.createElement("div");
   wrap.className = "nutrition";
-
   const head = document.createElement("div");
   head.className = "nutri-head";
   head.textContent = "Nutrition";
   wrap.appendChild(head);
-
   if (n.serving && (n.serving.household || n.serving.amount)) {
     const s = document.createElement("div");
     s.className = "nutri-serving";
@@ -442,24 +521,15 @@ function renderNutrition(container, n) {
     s.textContent = "Serving: " + [n.serving.household, amt && `(${amt})`].filter(Boolean).join(" ");
     wrap.appendChild(s);
   }
-
   const showPer100 = !!n.per100;
   const table = document.createElement("table");
   table.className = "nutri-table";
   const thead = document.createElement("thead");
   const hr = document.createElement("tr");
   hr.appendChild(document.createElement("th"));
-  const cPer = document.createElement("th");
-  cPer.textContent = "Per serving";
-  hr.appendChild(cPer);
-  if (showPer100) {
-    const c100 = document.createElement("th");
-    c100.textContent = basisLabel(n.basis);
-    hr.appendChild(c100);
-  }
-  thead.appendChild(hr);
-  table.appendChild(thead);
-
+  const cPer = document.createElement("th"); cPer.textContent = "Per serving"; hr.appendChild(cPer);
+  if (showPer100) { const c100 = document.createElement("th"); c100.textContent = basisLabel(n.basis); hr.appendChild(c100); }
+  thead.appendChild(hr); table.appendChild(thead);
   const tbody = document.createElement("tbody");
   for (const meta of NUTRIENTS) {
     const ps = n.perServing ? n.perServing[meta.key] : null;
@@ -467,29 +537,87 @@ function renderNutrition(container, n) {
     if (ps == null && p1 == null) continue;
     const tr = document.createElement("tr");
     if (meta.sub) tr.className = "sub";
-    const th = document.createElement("th");
-    th.scope = "row";
-    th.textContent = meta.label;
-    const td1 = document.createElement("td");
-    td1.textContent = fmt(meta.key, ps);
+    const th = document.createElement("th"); th.scope = "row"; th.textContent = meta.label;
+    const td1 = document.createElement("td"); td1.textContent = fmt(meta.key, ps);
     tr.append(th, td1);
-    if (showPer100) {
-      const td2 = document.createElement("td");
-      td2.textContent = fmt(meta.key, p1);
-      tr.appendChild(td2);
+    if (showPer100) { const td2 = document.createElement("td"); td2.textContent = fmt(meta.key, p1); tr.appendChild(td2); }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody); wrap.appendChild(table);
+  if (n.note) { const note = document.createElement("div"); note.className = "nutri-note"; note.textContent = n.note; wrap.appendChild(note); }
+  container.appendChild(wrap);
+}
+
+// Shared comparison table. items: [{ label, basis, per100, ingredients }]
+function renderComparisonTable(container, items) {
+  const bases = new Set(items.map((i) => i.basis).filter(Boolean));
+  if (bases.size > 1) {
+    const warn = document.createElement("div");
+    warn.className = "nutri-note";
+    warn.textContent = "Heads up: mixing per-100 g and per-100 ml products, which aren't directly comparable.";
+    container.appendChild(warn);
+  }
+
+  const table = document.createElement("table");
+  table.className = "cmp-table";
+  const thead = document.createElement("thead");
+  const hr = document.createElement("tr");
+  hr.appendChild(document.createElement("th"));
+  for (const it of items) {
+    const th = document.createElement("th");
+    const name = document.createElement("div"); name.textContent = it.label;
+    th.appendChild(name);
+    if (it.basis) { const b = document.createElement("div"); b.className = "cmp-basis"; b.textContent = basisLabel(it.basis); th.appendChild(b); }
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr); table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+
+  // Flagged-additives row (fewer red, then fewer yellow, is better).
+  const flagScores = items.map((it) => { const c = counts(it.ingredients); return c.red * 100 + c.yellow; });
+  const haveFlags = items.some((it) => (it.ingredients || []).length);
+  if (haveFlags) {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th"); th.scope = "row"; th.textContent = "Flagged";
+    tr.appendChild(th);
+    const min = Math.min(...flagScores), max = Math.max(...flagScores);
+    items.forEach((it, i) => {
+      const c = counts(it.ingredients);
+      const td = document.createElement("td");
+      td.textContent = `${c.red}🔴 ${c.yellow}🟡`;
+      if (min !== max && flagScores[i] === min) td.classList.add("cmp-better");
+      else if (min !== max && flagScores[i] === max) td.classList.add("cmp-worse");
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+
+  // Nutrition rows, per 100, with better/worse coloring.
+  for (const meta of NUTRIENTS) {
+    const vals = items.map((it) => (it.per100 ? it.per100[meta.key] : null));
+    if (vals.every((v) => v == null)) continue;
+    const present = vals.filter((v) => v != null);
+    let best = null, worst = null;
+    if (meta.better && present.length >= 2) {
+      const min = Math.min(...present), max = Math.max(...present);
+      if (min !== max) { best = meta.better === "low" ? min : max; worst = meta.better === "low" ? max : min; }
+    }
+    const tr = document.createElement("tr");
+    if (meta.sub) tr.className = "sub";
+    const th = document.createElement("th"); th.scope = "row"; th.textContent = meta.label;
+    tr.appendChild(th);
+    for (const v of vals) {
+      const td = document.createElement("td");
+      td.textContent = fmt(meta.key, v);
+      if (best != null && v === best) td.classList.add("cmp-better");
+      else if (worst != null && v === worst) td.classList.add("cmp-worse");
+      tr.appendChild(td);
     }
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
-  wrap.appendChild(table);
-
-  if (n.note) {
-    const note = document.createElement("div");
-    note.className = "nutri-note";
-    note.textContent = n.note;
-    wrap.appendChild(note);
-  }
-  container.appendChild(wrap);
+  container.appendChild(table);
 }
 
 // --- History -----------------------------------------------------------------
@@ -505,64 +633,38 @@ async function renderHistory() {
     const card = document.createElement("div");
     const button = document.createElement("button");
     button.className = "history-card";
-
     const thumb = document.createElement("img");
-    thumb.className = "hc-thumb";
-    thumb.alt = "";
+    thumb.className = "hc-thumb"; thumb.alt = "";
     const t = primaryThumb(scan);
     if (t) thumb.src = URL.createObjectURL(t);
-
     const bodyEl = document.createElement("div");
     bodyEl.className = "hc-body";
-    const title = document.createElement("div");
-    title.className = "hc-title";
-    title.textContent = scan.productGuess || "Scan";
-    const time = document.createElement("div");
-    time.className = "hc-time";
-    time.textContent = relativeTime(scan.timestamp);
-    const tally = document.createElement("div");
-    tally.className = "hc-tally";
-    appendTally(tally, scan.ingredients);
+    const title = document.createElement("div"); title.className = "hc-title"; title.textContent = scan.productGuess || "Scan";
+    const time = document.createElement("div"); time.className = "hc-time"; time.textContent = relativeTime(scan.timestamp);
+    const tally = document.createElement("div"); tally.className = "hc-tally"; appendTally(tally, scan.ingredients);
     const cal = scan.nutrition?.per100?.calories;
-    if (cal != null) {
-      const stat = document.createElement("span");
-      stat.className = "chip chip-stat";
-      stat.textContent = `${cal} kcal/${scan.nutrition.basis === "100ml" ? "100ml" : "100g"}`;
-      tally.appendChild(stat);
-    }
+    if (cal != null) { const stat = document.createElement("span"); stat.className = "chip chip-stat"; stat.textContent = `${cal} kcal/${scan.nutrition.basis === "100ml" ? "100ml" : "100g"}`; tally.appendChild(stat); }
     bodyEl.append(title, time, tally);
     button.append(thumb, bodyEl);
-
     const detail = document.createElement("div");
     detail.className = "hc-detail hidden";
     button.addEventListener("click", () => {
       if (detail.dataset.built !== "1") {
-        const nb = document.createElement("div");
-        renderNutrition(nb, scan.nutrition);
-        const list = document.createElement("ul");
-        list.className = "plain-list";
-        renderIngredientList(list, scan.ingredients);
-        detail.append(nb, list);
-        detail.dataset.built = "1";
+        const nb = document.createElement("div"); renderNutrition(nb, scan.nutrition);
+        const list = document.createElement("ul"); list.className = "plain-list"; renderIngredientList(list, scan.ingredients);
+        detail.append(nb, list); detail.dataset.built = "1";
       }
       detail.classList.toggle("hidden");
     });
-
     card.append(button, detail);
     els.historyList.appendChild(card);
   }
 }
 
 function appendTally(el, ingredients) {
-  const counts = { red: 0, yellow: 0, green: 0 };
-  for (const i of ingredients || []) if (counts[i.verdict] != null) counts[i.verdict]++;
-  const make = (cls, dot, n) => {
-    const s = document.createElement("span");
-    s.className = `chip chip-${cls}`;
-    s.textContent = `${dot} ${n}`;
-    return s;
-  };
-  el.append(make("red", "🔴", counts.red), make("yellow", "🟡", counts.yellow), make("green", "🟢", counts.green));
+  const c = counts(ingredients);
+  const make = (cls, dot, n) => { const s = document.createElement("span"); s.className = `chip chip-${cls}`; s.textContent = `${dot} ${n}`; return s; };
+  el.append(make("red", "🔴", c.red), make("yellow", "🟡", c.yellow), make("green", "🟢", c.green));
 }
 
 function relativeTime(ts) {
@@ -577,15 +679,14 @@ function relativeTime(ts) {
   return new Date(ts).toLocaleDateString();
 }
 
-// --- Compare -----------------------------------------------------------------
+// --- Compare tab (across saved scans) ---------------------------------------
 
 async function renderCompare() {
-  const comparable = (await getAllScans()).filter((s) => s.nutrition && s.nutrition.per100);
+  const comparable = (await getAllScans()).filter((s) => (s.ingredients && s.ingredients.length) || s.nutrition?.per100);
   const enough = comparable.length >= 2;
   els.compareEmpty.classList.toggle("hidden", enough);
   els.compareHint.classList.toggle("hidden", !enough);
 
-  // Drop selections that no longer exist.
   const ids = new Set(comparable.map((s) => s.id));
   for (const id of [...compareSelected]) if (!ids.has(id)) compareSelected.delete(id);
 
@@ -597,91 +698,26 @@ async function renderCompare() {
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = compareSelected.has(scan.id);
-      cb.addEventListener("change", () => {
-        if (cb.checked) compareSelected.add(scan.id);
-        else compareSelected.delete(scan.id);
-        buildCompareTable(comparable);
-      });
+      cb.addEventListener("change", () => { cb.checked ? compareSelected.add(scan.id) : compareSelected.delete(scan.id); drawCompareTable(comparable); });
       const t = primaryThumb(scan);
-      const img = document.createElement("img");
-      img.className = "cmp-thumb";
-      img.alt = "";
-      if (t) img.src = URL.createObjectURL(t);
-      const label = document.createElement("span");
-      label.className = "cmp-label";
-      label.textContent = `${scan.productGuess || "Scan"} (${scan.nutrition.per100.calories ?? "?"} kcal/${scan.nutrition.basis === "100ml" ? "100ml" : "100g"})`;
+      const img = document.createElement("img"); img.className = "cmp-thumb"; img.alt = ""; if (t) img.src = URL.createObjectURL(t);
+      const label = document.createElement("span"); label.className = "cmp-label";
+      const cal = scan.nutrition?.per100?.calories;
+      label.textContent = scan.productGuess || "Scan" + (cal != null ? ` (${cal} kcal/100g)` : "");
       row.append(cb, img, label);
       els.comparePicker.appendChild(row);
     }
   }
-  buildCompareTable(comparable);
+  drawCompareTable(comparable);
 }
 
-function buildCompareTable(comparable) {
+function drawCompareTable(comparable) {
   els.compareTableWrap.replaceChildren();
-  els.compareWarning.classList.add("hidden");
-
   const selected = comparable.filter((s) => compareSelected.has(s.id));
   if (selected.length < 2) return;
-
-  // Warn if mixing weight-based and volume-based items.
-  const bases = new Set(selected.map((s) => s.nutrition.basis));
-  if (bases.size > 1) {
-    els.compareWarning.textContent = "Heads up: you're mixing per-100 g and per-100 ml products, which aren't directly comparable.";
-    els.compareWarning.classList.remove("hidden");
-  }
-
-  const table = document.createElement("table");
-  table.className = "cmp-table";
-
-  const thead = document.createElement("thead");
-  const hr = document.createElement("tr");
-  hr.appendChild(document.createElement("th"));
-  for (const s of selected) {
-    const th = document.createElement("th");
-    const name = document.createElement("div");
-    name.textContent = s.productGuess || "Scan";
-    const basis = document.createElement("div");
-    basis.className = "cmp-basis";
-    basis.textContent = basisLabel(s.nutrition.basis);
-    th.append(name, basis);
-    hr.appendChild(th);
-  }
-  thead.appendChild(hr);
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
-  for (const meta of NUTRIENTS) {
-    const vals = selected.map((s) => s.nutrition.per100[meta.key]);
-    if (vals.every((v) => v == null)) continue; // skip empty rows
-
-    const present = vals.filter((v) => v != null);
-    let best = null, worst = null;
-    if (meta.better && present.length >= 2) {
-      const min = Math.min(...present), max = Math.max(...present);
-      if (min !== max) {
-        best = meta.better === "low" ? min : max;
-        worst = meta.better === "low" ? max : min;
-      }
-    }
-
-    const tr = document.createElement("tr");
-    if (meta.sub) tr.className = "sub";
-    const th = document.createElement("th");
-    th.scope = "row";
-    th.textContent = meta.label;
-    tr.appendChild(th);
-    for (const v of vals) {
-      const td = document.createElement("td");
-      td.textContent = fmt(meta.key, v);
-      if (best != null && v === best) td.classList.add("cmp-better");
-      else if (worst != null && v === worst) td.classList.add("cmp-worse");
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  els.compareTableWrap.appendChild(table);
+  renderComparisonTable(els.compareTableWrap, selected.map((s) => ({
+    label: s.productGuess || "Scan", basis: s.nutrition?.basis, per100: s.nutrition?.per100 || null, ingredients: s.ingredients || [],
+  })));
 }
 
 init();

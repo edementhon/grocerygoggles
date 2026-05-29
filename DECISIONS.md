@@ -17,5 +17,9 @@ Rather than a separate "compare mode," the same snap → Analyze flow returns 1.
 Per-100g nutrition is commoditized; the LLM's judgment of ingredient *quality* (which additives are flagged, what A has that B doesn't, a one-line "cleaner pick") is the differentiated, decision-changing part. Since we already make one call, the model also returns the quality diff + verdict at ~no extra round-trip cost. Nutrition math stays deterministic in JS; quality judgment stays with the model (handles synonyms/salience).
 No single 0-100 score: reductive and contentious, and it fights the "opinionated but transparent, you decide" ethos. Verdict sentence + visible breakdown instead.
 
-## OPEN | Model: speed vs OCR robustness
-gemini-3.5-flash (current default) is the slowest/highest-quality tier. Speed-first argues for gemini-2.5-flash (with thinkingBudget:0) or flash-lite. This trades against the earlier "robust OCR is the priority" decision. Pending user choice / on-device benchmark.
+## 2026-05-29 | Model: Fast/Quality toggle, default Fast (resolves the open question)
+Settings has a "Speed vs quality" toggle. Default **Fast** = gemini-2.5-flash with thinkingBudget:0 (skip model "thinking" to cut latency); **Best quality** = gemini-3.5-flash for the occasional tricky/glossy/tiny label. Both IDs in the `MODELS` constant. Rationale: speed is the gating adoption constraint, so default to the fast tier and let the user opt into quality when a scan fails, rather than paying 3.5-flash latency on every aisle scan.
+Key constraints: thinkingBudget:0 is sent only for the 2.5 tier (3.5 may reject it); flash-lite remains a one-line swap for max speed.
+
+## 2026-05-29 | One product per photo set is its own history record
+A batch Analyze can yield multiple products; each is saved as its own scan record (not one combined record) so the history-based Compare tab treats today's and past scans uniformly. Re-analyzing a batch deletes the prior batch's records and rewrites them (no duplicates). The inline comparison after a multi-product scan is rendered live from the call's response.

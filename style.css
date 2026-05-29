@@ -366,6 +366,26 @@ textarea { resize: vertical; }
 .chip-stat { color: var(--accent); font-weight: 600; }
 .plain-list { list-style: none; padding: 0; margin: 8px 0 0; }
 
+/* Single-scan headline verdict */
+.verdict-headline { font-weight: 700; padding: 8px 0 2px; }
+.vh-clean { color: var(--green); }
+.vh-warn { color: var(--yellow); }
+.vh-bad { color: var(--red); }
+
+/* Segmented Fast/Quality toggle */
+.seg { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.seg-opt { flex: 1; text-align: center; padding: 10px; font-weight: 600; cursor: pointer; margin: 0; }
+.seg-opt input { display: none; }
+.seg-opt:has(input:checked) { background: var(--accent); color: #fff; }
+.seg-opt + .seg-opt { border-left: 1px solid var(--border); }
+
+/* Inline comparison verdict + highlights */
+.cmp-verdict { font-weight: 700; font-size: 1.05rem; background: var(--green-bg); border: 1px solid #bbf7d0; border-radius: 12px; padding: 12px 14px; margin: 4px 0 10px; }
+.cmp-highlights { margin: 0 0 12px; padding-left: 1.1em; }
+.cmp-highlights li { margin: 4px 0; }
+.cmp-detail { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 6px; }
+.cmp-detail summary { font-weight: 600; padding: 8px 0; cursor: pointer; }
+
 /* Compare */
 .cmp-pick { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
 .cmp-pick input { width: 20px; height: 20px; flex: none; }

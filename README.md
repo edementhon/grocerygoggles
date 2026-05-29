@@ -25,13 +25,16 @@ camera photo(s) → downscale on-device → Gemini (verdicts + nutrition, JSON)
 
 - **Capture** uses the native camera via `<input type="file" capture>`, which avoids
   a long-standing iOS bug where installed PWAs lose camera permission between sessions.
-  You can add **multiple photos** to one scan (e.g. ingredients on one panel, Nutrition
-  Facts on another); they're sent together and merged into one product.
+  Snap a **burst of photos** into the tray, then **Analyze once**: photos of the same
+  product are merged, and if you shot **two different products** the model groups them
+  and you get a comparison, all from one API call (the round-trip is the slow part, so
+  it's one, not several).
 - **Classification + nutrition** use Google's Gemini API, which returns structured JSON.
-  The model only *transcribes* the nutrition label; the per-100g/ml **math is done in
-  JavaScript** (see `nutrition.js`) so it's deterministic, auditable, and unit-tested.
-- **Compare** puts two or more saved products side by side per 100 g / 100 ml, with the
-  better value per row highlighted (lower sugar/sodium, higher protein/fiber).
+  The model only *transcribes* nutrition and *judges* ingredient quality; the per-100g/ml
+  **math is done in JavaScript** (see `nutrition.js`) so it's deterministic and unit-tested.
+- **Compare** (one product per photo set → automatic, or pick saved products in the
+  Compare tab) puts items side by side per 100 g / 100 ml with the better value per row
+  highlighted, plus a **flagged-additive count** and a one-line "cleaner pick" verdict.
 - **History** (last 50 scans) and your settings live in the browser
   (IndexedDB + localStorage). Nothing is sent anywhere except directly from your
   phone to Google's API.
@@ -53,20 +56,16 @@ backend to fund or rate-limit.
 
 ## Configuration
 
-The model is a single constant at the top of [`app.js`](./app.js):
+**Speed vs. quality** (Settings) picks the model, since a slow scan in the aisle
+just won't get used:
 
-```js
-const MODEL = "gemini-3.5-flash";
-```
+| Mode | Model | When |
+|------|-------|------|
+| **Fast** (default) | `gemini-2.5-flash` (thinking off) | Quick; strong OCR on printed labels. |
+| **Best quality** | `gemini-3.5-flash` | Bump to this if a tricky/glossy/tiny label won't read. |
 
-| Model | Trade-off |
-|-------|-----------|
-| `gemini-3.5-flash` | **Default.** Best OCR/vision quality. Newest model, so free-tier rate limits are tighter. |
-| `gemini-2.5-flash` | Slightly weaker, very cheap, higher free-tier limits. Great fallback. |
-| `gemini-2.5-flash-lite` | Cheapest/fastest. Fine for clean labels, weaker on hard ones. |
-
-If you scan a lot and hit free-tier limits on `gemini-3.5-flash`, switch to
-`gemini-2.5-flash`.
+Both IDs live in the `MODELS` constant at the top of [`app.js`](./app.js); swap in
+`gemini-2.5-flash-lite` there if you want the fastest/cheapest option.
 
 **Personal preferences** (Settings): a free-form box injected into the prompt to
 nudge verdicts, e.g. *"I'm vegan, flag dairy as red. I'm fine with cane sugar. I

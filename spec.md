@@ -160,6 +160,15 @@ Added so two products with different serving sizes can be compared fairly (EU-la
 - **Compare view.** A third bottom-nav tab. Pick 2+ saved products (only those with a per-100 basis), see a side-by-side per-100 table with the better value per row highlighted (lower calories/sugar/sat-fat/sodium greener; higher protein/fiber greener; carbs uncolored). Warns when mixing g and ml products.
 - **Storage.** Records gain `nutrition` (normalized) and `thumbnails[]`; no IndexedDB version bump needed (schemaless records; old scans render as "no nutrition captured").
 
+## Speed-first unified flow + quality comparison (v1.2)
+
+Driven by "if it's slow it won't be used." See `DECISIONS.md` for the reasoning.
+
+- **One call, one-or-many products.** Analyze sends the whole photo burst in a single Gemini call. The model groups photos by product (`photoIndexes`) and returns a `products[]` array. One product → a single verdict card (with a computed headline like "2 to avoid · 1 in moderation"). Two+ → a comparison, no separate steps. Each product is saved as its own history record; re-analyzing replaces the batch (`deleteScan` + `addScan`).
+- **Quality comparison in the same call.** The differentiator vs commodity per-100g: the model also returns a one-line "cleaner pick" `summary` and `highlights` of ingredient-quality differences (which flagged additives one product has that the other lacks). Zero extra round-trips. The comparison table adds a **Flagged** row (red/yellow counts, fewer = greener) above the nutrition rows. No single 0-100 score.
+- **Fast/Quality toggle.** Default Fast (`gemini-2.5-flash`, `thinkingBudget:0`); Best quality (`gemini-3.5-flash`) for hard labels. `MODELS` constant in `app.js`.
+- **Shared renderer.** `renderComparisonTable` powers both the inline comparison and the history-based Compare tab.
+
 ## Decision log
 
 These are decisions made during planning, with the reasoning, so we don't re-debate them later.

@@ -53,6 +53,12 @@ export async function updateScan(id, record) {
   return id;
 }
 
+// Delete a scan by id (used to replace a batch when the user re-analyzes).
+export async function deleteScan(id) {
+  const db = await openDB();
+  await done(tx(db, "readwrite").delete(id));
+}
+
 async function trim(store) {
   const count = await done(store.count());
   let toDelete = count - MAX_HISTORY;

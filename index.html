@@ -47,10 +47,10 @@
     </button>
     <input type="file" id="file-input" accept="image/*" capture="environment" hidden>
 
-    <!-- Capture tray: collect one or more photos (e.g. ingredients + nutrition), then Analyze -->
+    <!-- Capture tray: snap one or more products (and their panels), then Analyze once -->
     <div id="tray" class="tray hidden">
       <div id="tray-thumbs" class="tray-thumbs"></div>
-      <p class="hint">Add the ingredients and the Nutrition Facts panel. One photo if they fit together, or several.</p>
+      <p class="hint">Snap a product's ingredients and Nutrition Facts. Add a second product to compare them.</p>
       <div class="tray-actions">
         <button id="add-photo" class="secondary">+ Add photo</button>
         <button id="analyze-btn" class="primary">Analyze</button>
@@ -59,10 +59,8 @@
 
     <div id="scan-result" class="hidden">
       <div id="scan-status"></div>
-      <div id="scan-meta" class="meta"></div>
-      <div id="nutrition-block"></div>
+      <div id="result-body"></div>
       <p id="scan-note" class="nutri-note hidden"></p>
-      <ul id="ingredient-list"></ul>
       <button id="new-scan" class="secondary">Scan another</button>
     </div>
   </section>
@@ -80,7 +78,6 @@
     <p id="compare-empty" class="muted hidden">Scan at least two products that have Nutrition Facts to compare them here.</p>
     <p id="compare-hint" class="hint hidden">Select two or more products to compare them per 100 g / 100 ml.</p>
     <div id="compare-picker"></div>
-    <div id="compare-warning" class="nutri-note hidden"></div>
     <div id="compare-table-wrap"></div>
   </section>
 
@@ -104,6 +101,13 @@
     <input type="password" id="settings-key" autocomplete="off" placeholder="AIza...">
     <p class="hint">Stored only in this browser. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get one</a>.</p>
 
+    <label>Speed vs. quality</label>
+    <div class="seg" id="model-toggle">
+      <label class="seg-opt"><input type="radio" name="model" value="fast" checked> Fast</label>
+      <label class="seg-opt"><input type="radio" name="model" value="quality"> Best quality</label>
+    </div>
+    <p class="hint" id="model-hint">Fast (Gemini 2.5 Flash) is quicker. Switch to Best quality if a tricky label won't read.</p>
+
     <label for="settings-prefs">Personal preferences</label>
     <textarea id="settings-prefs" rows="6" placeholder="Optional. Examples: 'I'm vegan, flag dairy as red.' 'I'm fine with cane sugar.' 'I avoid seed oils.'"></textarea>
     <p class="hint">Free-form. These nudge the verdict on every scan.</p>
@@ -112,7 +116,7 @@
 
     <button id="clear-history" class="danger">Clear history</button>
 
-    <p class="disclaimer">Grocery Goggles uses Gemini (<code>gemini-3.5-flash</code>) for OCR and classification. Your key and history stay on this device. Verdicts are an opinionated heuristic, not medical advice.</p>
+    <p class="disclaimer">Your key and history stay on this device, sent only to Google's API. Verdicts are an opinionated heuristic, not medical advice.</p>
   </div>
 </aside>
 <div id="drawer-backdrop" class="backdrop hidden"></div>
