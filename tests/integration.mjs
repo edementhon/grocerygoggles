@@ -82,6 +82,7 @@ try {
   ok((await page.locator("#result-body .ingredient").count()) === 3, "single: 3 ingredients");
   ok((await page.locator("#result-body .nutri-table").textContent()).includes("400 kcal"), "single: calories normalized to 400/100g");
   ok(lastUrl.includes("gemini-2.5-flash"), "default model is fast (2.5-flash)");
+  ok((await page.locator("#scan-timing").textContent()).includes("Analyzed in"), "timing readout shown after a scan");
 
   // --- Model toggle -> quality hits 3.5-flash ---
   await page.click("#open-settings");

@@ -366,6 +366,9 @@ textarea { resize: vertical; }
 .chip-stat { color: var(--accent); font-weight: 600; }
 .plain-list { list-style: none; padding: 0; margin: 8px 0 0; }
 
+/* Timing readout (tap-to-result) */
+.timing { font-size: 0.78rem; color: var(--muted); margin: 8px 0 0; text-align: right; }
+
 /* Single-scan headline verdict */
 .verdict-headline { font-weight: 700; padding: 8px 0 2px; }
 .vh-clean { color: var(--green); }

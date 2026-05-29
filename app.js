@@ -96,7 +96,7 @@ const els = {
   scanView: $("scan-view"), scanBtn: $("scan-btn"), fileInput: $("file-input"),
   tray: $("tray"), trayThumbs: $("tray-thumbs"), addPhoto: $("add-photo"), analyzeBtn: $("analyze-btn"),
   scanResult: $("scan-result"), scanStatus: $("scan-status"), resultBody: $("result-body"),
-  scanNote: $("scan-note"), newScan: $("new-scan"),
+  scanTiming: $("scan-timing"), scanNote: $("scan-note"), newScan: $("new-scan"),
 
   historyView: $("history-view"), historyList: $("history-list"), historyEmpty: $("history-empty"),
 
@@ -245,6 +245,7 @@ function resetScan() {
   currentScanIds = [];
   els.scanResult.classList.add("hidden");
   els.scanNote.classList.add("hidden");
+  els.scanTiming.classList.add("hidden");
   els.resultBody.replaceChildren();
   clearStatus();
   renderTray(); // clears tray thumbs, hides tray, restores the scan button
@@ -254,9 +255,11 @@ async function onAnalyze() {
   if (!photos.length) return;
   if (!getKey()) { showSetup(); return; }
 
+  const t0 = performance.now(); // measured tap-to-result, so real scans double as a benchmark
   els.scanResult.classList.remove("hidden");
   els.resultBody.replaceChildren();
   els.scanNote.classList.add("hidden");
+  els.scanTiming.classList.add("hidden");
   setStatus("Reading label...", false, true);
 
   try {
@@ -270,6 +273,9 @@ async function onAnalyze() {
     if (products.length === 1) renderSingle(els.resultBody, products[0]);
     else renderComparison(els.resultBody, products, result.comparison);
     showNudge(products);
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    els.scanTiming.textContent = `Analyzed in ${secs}s · ${getModelMode() === "quality" ? "Best quality" : "Fast"}`;
+    els.scanTiming.classList.remove("hidden");
     await saveBatch(products);
   } catch (err) {
     handleApiError(err);
